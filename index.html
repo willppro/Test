@@ -65,6 +65,33 @@
 
   .dashes { border: none; border-top: 2px dashed var(--ink); margin: 14px 0; }
 
+  .name-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    margin-bottom: 10px;
+  }
+  .name-row label { white-space: nowrap; }
+  .name-row input {
+    flex: 1;
+    font-family: inherit;
+    font-size: 13px;
+    padding: 6px 8px;
+    border: 1px solid var(--ink);
+    background: var(--paper);
+    outline: none;
+    min-width: 0;
+  }
+  .name-row input.attention {
+    border: 2px solid var(--stamp);
+    animation: shake .3s;
+  }
+  @keyframes shake {
+    25% { transform: translateX(-3px); }
+    75% { transform: translateX(3px); }
+  }
+
   .add-row { display: flex; gap: 8px; }
   .add-row input {
     flex: 1;
@@ -100,7 +127,13 @@
     font-size: 15px;
     border-bottom: 1px dashed var(--line);
   }
-  li.item .name { flex: 1; overflow-wrap: anywhere; }
+  li.item .mid { flex: 1; min-width: 0; }
+  li.item .name { overflow-wrap: anywhere; }
+  li.item .by {
+    font-size: 10px;
+    color: var(--faded);
+    letter-spacing: .5px;
+  }
   li.item .votes {
     font-weight: 700;
     min-width: 34px;
@@ -120,6 +153,11 @@
     padding: 4px 10px;
     cursor: pointer;
     transition: transform .08s;
+    min-width: 44px;
+  }
+  button.vote.voted {
+    background: var(--stamp);
+    color: var(--paper);
   }
   button.vote:active { transform: scale(1.15); }
   button.vote:focus-visible, button.done:focus-visible, button.trash:focus-visible {
@@ -183,10 +221,7 @@
     text-transform: uppercase;
   }
 
-  .setup {
-    font-size: 13px;
-    line-height: 1.7;
-  }
+  .setup { font-size: 13px; line-height: 1.7; }
   .setup ol { padding-left: 20px; margin-top: 10px; }
   .setup li { margin-bottom: 8px; }
   .setup code {
@@ -198,6 +233,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     button.vote:active, .add-row button:active { transform: none; }
+    .name-row input.attention { animation: none; }
   }
 </style>
 </head>
@@ -212,18 +248,25 @@
 
     <hr class="dashes">
 
-    <!-- Écran de configuration si aucun ID de bin dans l'URL -->
+    <!-- Écran de configuration si aucune base dans l'URL -->
     <div class="setup" id="setup" hidden>
       <strong>Configuration (une seule fois, par l'organisateur)&nbsp;:</strong>
       <ol>
-        <li>Va sur <a href="https://www.npoint.io" target="_blank" rel="noopener">npoint.io</a>, remplace le contenu par <code>[]</code> et clique <strong>Save</strong>.</li>
-        <li>Copie l'identifiant du bin dans l'URL (la partie après <code>npoint.io/docs/</code>).</li>
-        <li>Ajoute-le à la fin du lien de cette page&nbsp;: <code>…/index.html#TON_ID</code></li>
-        <li>Partage ce lien complet aux copains. C'est tout.</li>
+        <li>Sur <a href="https://console.firebase.google.com" target="_blank" rel="noopener">console.firebase.google.com</a>, crée un projet (désactive Analytics).</li>
+        <li>Menu <em>Build → Realtime Database → Créer une base</em> (Belgique), démarre en <strong>mode test</strong>.</li>
+        <li>Onglet <em>Règles</em>, remplace tout par&nbsp;:<br>
+          <code>{ "rules": { "liste": { ".read": true, ".write": true } } }</code><br>
+          puis <strong>Publier</strong>.</li>
+        <li>Copie l'adresse de la base (forme <code>xxx-default-rtdb.europe-west1.firebasedatabase.app</code>) et ajoute-la à la fin du lien de cette page après un <code>#</code>.</li>
       </ol>
     </div>
 
     <div id="app" hidden>
+      <div class="name-row">
+        <label for="myName">Ton prénom&nbsp;:</label>
+        <input id="myName" type="text" maxlength="20" placeholder="pour signer tes ajouts">
+      </div>
+
       <div class="add-row">
         <input id="input" type="text" maxlength="60" placeholder="Ajouter un produit…" aria-label="Nom du produit">
         <button id="addBtn">+ OK</button>
@@ -244,84 +287,64 @@
     </div>
 
     <div class="barcode" aria-hidden="true"></div>
-    <div class="footer-note">MERCI DE VOTRE VISITE &middot; +1 = VOTE</div>
+    <div class="footer-note">MERCI DE VOTRE VISITE &middot; 1 VOTE PAR PERSONNE</div>
   </main>
 
 <script>
-  // L'identifiant du bin npoint est lu dans l'URL : monsite.com/index.html#abc123
-  const BIN_ID = location.hash.slice(1).trim();
-  const API = 'https://api.npoint.io/' + BIN_ID;
+  // Adresse de la base Firebase lue dans l'URL après le #
+  const HOST = location.hash.slice(1).trim()
+    .replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  const BASE = 'https://' + HOST + '/liste';
   const $ = id => document.getElementById(id);
-  let items = [];
-  let saving = false;
+
+  // Identifiant unique de cet appareil (1 vote par produit par appareil)
+  let deviceId = localStorage.getItem('courses_device');
+  if (!deviceId) {
+    deviceId = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    localStorage.setItem('courses_device', deviceId);
+  }
+
+  let items = {};   // { id: { name, by, done, created, votes: { deviceId: prénom } } }
+  let busy = false;
 
   $('date').textContent = new Date().toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' });
 
-  if (!BIN_ID) {
+  if (!HOST) {
     $('setup').hidden = false;
   } else {
     $('app').hidden = false;
     boot();
   }
 
-  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+  function myName() { return $('myName').value.trim(); }
 
-  async function fetchRemote() {
-    const r = await fetch(API, { cache: 'no-store' });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const data = await r.json();
-    return Array.isArray(data) ? data : [];
+  function needName() {
+    const el = $('myName');
+    el.classList.remove('attention');
+    void el.offsetWidth; // relance l'animation
+    el.classList.add('attention');
+    el.focus();
   }
 
-  // Fusion locale/distante pour limiter les écrasements quand deux
-  // personnes modifient en même temps (stratégie : union par id,
-  // votes = max, état le plus récent gagne, suppressions = tombstones)
-  function merge(local, remote) {
-    const map = new Map();
-    for (const it of remote) map.set(it.id, { ...it });
-    for (const it of local) {
-      const r = map.get(it.id);
-      if (!r) { map.set(it.id, { ...it }); continue; }
-      const newer = (it.updated || 0) >= (r.updated || 0) ? it : r;
-      map.set(it.id, {
-        ...newer,
-        votes: Math.max(it.votes || 0, r.votes || 0),
-        deleted: it.deleted || r.deleted || false
-      });
-    }
-    // purge des tombstones de plus de 24 h
-    const cutoff = Date.now() - 24 * 3600 * 1000;
-    return [...map.values()].filter(i => !(i.deleted && (i.updated || 0) < cutoff));
+  function uid() { return 'i' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+  async function api(path, method, body) {
+    const r = await fetch(BASE + path + '.json', {
+      method: method || 'GET',
+      cache: 'no-store',
+      body: body === undefined ? undefined : JSON.stringify(body)
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
   }
 
   async function load() {
     try {
-      const remote = await fetchRemote();
-      items = merge(items, remote);
+      const data = await api('');
+      items = data || {};
       setSync('');
     } catch (e) {
       setSync('hors ligne');
-    }
-    render();
-  }
-
-  async function save() {
-    if (saving) return;
-    saving = true;
-    try {
-      const remote = await fetchRemote();
-      items = merge(items, remote);
-      const r = await fetch(API, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(items)
-      });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      setSync('sync ✓', 2000);
-    } catch (e) {
-      setSync('échec sync — réessaie');
-    } finally {
-      saving = false;
     }
     render();
   }
@@ -335,29 +358,46 @@
 
   function esc(s) {
     const d = document.createElement('div');
-    d.textContent = s;
+    d.textContent = s || '';
     return d.innerHTML;
   }
 
-  function render() {
-    if (!BIN_ID) return;
-    const visible = items.filter(i => !i.deleted);
-    const active = visible.filter(i => !i.done).sort((a,b) => b.votes - a.votes || a.created - b.created);
-    const done = visible.filter(i => i.done).sort((a,b) => (b.updated||0) - (a.updated||0));
-    const maxVotes = active.length ? Math.max(...active.map(i => i.votes)) : 0;
+  function voteCount(i) { return i.votes ? Object.keys(i.votes).length : 0; }
 
-    $('activeList').innerHTML = active.map(i => `
+  function render() {
+    if (!HOST) return;
+    const all = Object.entries(items).map(([id, i]) => ({ id, ...i }));
+    const active = all.filter(i => !i.done)
+      .sort((a, b) => voteCount(b) - voteCount(a) || (a.created || 0) - (b.created || 0));
+    const done = all.filter(i => i.done)
+      .sort((a, b) => (b.updated || 0) - (a.updated || 0));
+    const maxVotes = active.length ? Math.max(...active.map(voteCount)) : 0;
+
+    $('activeList').innerHTML = active.map(i => {
+      const n = voteCount(i);
+      const voted = i.votes && i.votes[deviceId];
+      const voters = i.votes ? Object.values(i.votes).filter(Boolean).join(', ') : '';
+      return `
       <li class="item" data-id="${i.id}">
-        <button class="vote" data-act="vote" aria-label="Voter pour ${esc(i.name)}">+1</button>
-        <span class="name">${esc(i.name)}</span>
-        <span class="votes ${i.votes >= 3 && i.votes === maxVotes ? 'hot' : ''}">&times;${i.votes}</span>
+        <button class="vote ${voted ? 'voted' : ''}" data-act="vote"
+          aria-label="${voted ? 'Retirer mon vote pour' : 'Voter pour'} ${esc(i.name)}"
+          aria-pressed="${voted ? 'true' : 'false'}">${voted ? '✓' : '+1'}</button>
+        <span class="mid">
+          <span class="name">${esc(i.name)}</span><br>
+          <span class="by">${i.by ? 'par ' + esc(i.by) : ''}</span>
+        </span>
+        <span class="votes ${n >= 3 && n === maxVotes ? 'hot' : ''}" title="${esc(voters)}">&times;${n}</span>
         <button class="done" data-act="done" title="Marquer pris / retirer" aria-label="Retirer ${esc(i.name)}">✓</button>
-      </li>`).join('');
+      </li>`;
+    }).join('');
 
     $('doneList').innerHTML = done.map(i => `
       <li class="item is-done" data-id="${i.id}">
-        <span class="name">${esc(i.name)}</span>
-        <span class="votes">&times;${i.votes}</span>
+        <span class="mid">
+          <span class="name">${esc(i.name)}</span><br>
+          <span class="by">${i.by ? 'par ' + esc(i.by) : ''}</span>
+        </span>
+        <span class="votes">&times;${voteCount(i)}</span>
         <button class="done" data-act="undo" title="Remettre dans la liste" aria-label="Remettre ${esc(i.name)}">↩</button>
         <button class="trash" data-act="del" title="Supprimer définitivement" aria-label="Supprimer ${esc(i.name)}">✕</button>
       </li>`).join('');
@@ -367,17 +407,43 @@
     $('total').textContent = active.length;
   }
 
+  async function write(fn) {
+    if (busy) return;
+    busy = true;
+    render(); // affichage optimiste immédiat
+    try {
+      await fn();
+      setSync('sync ✓', 1500);
+    } catch (e) {
+      setSync('échec sync — réessaie');
+    } finally {
+      busy = false;
+    }
+    load();
+  }
+
   function addItem() {
     const name = $('input').value.trim();
     if (!name) return;
+    if (!myName()) { needName(); return; }
+    const id = uid();
     const now = Date.now();
-    items.push({ id: uid(), name, votes: 1, done: false, deleted: false, created: now, updated: now });
+    const item = {
+      name, by: myName(), done: false, created: now, updated: now,
+      votes: { [deviceId]: myName() }
+    };
+    items[id] = item;
     $('input').value = '';
-    render();
-    save();
+    write(() => api('/' + id, 'PUT', item));
   }
 
   function boot() {
+    $('myName').value = localStorage.getItem('courses_name') || '';
+    $('myName').addEventListener('input', () => {
+      localStorage.setItem('courses_name', myName());
+      $('myName').classList.remove('attention');
+    });
+
     $('addBtn').addEventListener('click', addItem);
     $('input').addEventListener('keydown', e => { if (e.key === 'Enter') addItem(); });
 
@@ -385,20 +451,36 @@
       const btn = e.target.closest('button[data-act]');
       if (!btn) return;
       const li = btn.closest('li[data-id]');
-      const item = items.find(i => i.id === li.dataset.id);
+      const id = li.dataset.id;
+      const item = items[id];
       if (!item) return;
       const act = btn.dataset.act;
-      item.updated = Date.now();
-      if (act === 'vote') item.votes++;
-      if (act === 'done') item.done = true;
-      if (act === 'undo') item.done = false;
-      if (act === 'del') item.deleted = true;
-      render();
-      save();
+      const now = Date.now();
+
+      if (act === 'vote') {
+        const hasVoted = item.votes && item.votes[deviceId];
+        if (hasVoted) {
+          delete item.votes[deviceId];
+          write(() => api('/' + id + '/votes/' + deviceId, 'DELETE'));
+        } else {
+          item.votes = item.votes || {};
+          item.votes[deviceId] = myName() || '?';
+          write(() => api('/' + id + '/votes/' + deviceId, 'PUT', myName() || '?'));
+        }
+      }
+      if (act === 'done' || act === 'undo') {
+        item.done = (act === 'done');
+        item.updated = now;
+        write(() => api('/' + id, 'PATCH', { done: item.done, updated: now }));
+      }
+      if (act === 'del') {
+        delete items[id];
+        write(() => api('/' + id, 'DELETE'));
+      }
     });
 
     load();
-    setInterval(() => { if (!saving) load(); }, 8000);
+    setInterval(() => { if (!busy) load(); }, 5000);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') load();
     });
