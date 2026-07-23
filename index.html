@@ -118,6 +118,24 @@
   .add-row button:active { transform: translate(2px,2px); }
   .add-row button:focus-visible { outline: 3px solid var(--stamp); outline-offset: 2px; }
 
+  /* --- en-têtes de catégorie --- */
+  .cat-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 16px 0 2px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  .cat-head .fill {
+    flex: 1;
+    border-bottom: 2px dotted var(--line);
+    transform: translateY(-3px);
+  }
+  .cat-head .count { color: var(--faded); font-weight: 400; letter-spacing: 0; }
+
   ul { list-style: none; }
   li.item {
     display: flex;
@@ -127,7 +145,12 @@
     font-size: 15px;
     border-bottom: 1px dashed var(--line);
   }
-  li.item .mid { flex: 1; min-width: 0; }
+  li.item .mid {
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
   li.item .name { overflow-wrap: anywhere; }
   li.item .by {
     font-size: 10px;
@@ -136,8 +159,39 @@
   }
   li.item .by .vc { font-weight: 700; }
   li.item .by .vc.hot { color: var(--stamp); }
+  li.item .by .more { opacity: .7; }
 
-  /* stepper de quantité */
+  /* menu catégorie / suppression sous la ligne */
+  li.catmenu {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    padding: 8px 0 10px;
+    border-bottom: 1px dashed var(--line);
+    background: #F6F2E6;
+  }
+  li.catmenu .cats { display: flex; gap: 4px; flex-wrap: wrap; }
+  li.catmenu button {
+    font-family: inherit;
+    font-size: 16px;
+    border: 1px solid var(--line);
+    background: var(--paper);
+    padding: 5px 8px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  li.catmenu button.current {
+    border: 2px solid var(--ink);
+  }
+  li.catmenu button.del {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--stamp);
+    border: 1px solid var(--stamp);
+  }
+  li.catmenu button:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+
   .qty {
     display: flex;
     align-items: center;
@@ -207,6 +261,7 @@
   }
   li.item.is-done { color: var(--faded); }
   li.item.is-done .name { text-decoration: line-through; }
+  li.item.is-done .mid { cursor: default; }
   li.item.is-done .qty-fixed {
     font-size: 13px;
     white-space: nowrap;
@@ -299,7 +354,7 @@
 
       <hr class="dashes">
 
-      <ul id="activeList" aria-label="Produits à acheter"></ul>
+      <div id="activeArea"></div>
       <div class="empty" id="emptyMsg" hidden>Ticket vide. Ajoutez le premier produit&nbsp;!</div>
 
       <div id="doneSection" hidden>
@@ -312,7 +367,7 @@
     </div>
 
     <div class="barcode" aria-hidden="true"></div>
-    <div class="footer-note">MERCI DE VOTRE VISITE &middot; 1 VOTE PAR PERSONNE</div>
+    <div class="footer-note">1 VOTE PAR PERSONNE &middot; TAP SUR UN PRODUIT = CAT&Eacute;GORIE / SUPPR.</div>
   </main>
 
 <script>
@@ -329,8 +384,95 @@
     localStorage.setItem('courses_device', deviceId);
   }
 
-  let items = {};   // { id: { name, by, qty, done, created, updated, votes: { deviceId: prénom } } }
+  /* ------------------- catégories ------------------- */
+  const CATS = [
+    { id: 'petitdej', emoji: '🥐', label: 'Petit déj' },
+    { id: 'repas',    emoji: '🍽️', label: 'Repas' },
+    { id: 'apero',    emoji: '🍻', label: 'Apéro' },
+    { id: 'boisson',  emoji: '🍷', label: 'Boisson' },
+    { id: 'autre',    emoji: '🛒', label: 'Autre' }
+  ];
+  const CAT = Object.fromEntries(CATS.map(c => [c.id, c]));
+
+  // Classement auto par mots-clés (l'ordre compte : les règles
+  // spécifiques avant les génériques pour lever les ambiguïtés)
+  const RULES = [
+    // désambiguïsations prioritaires
+    ['pate a tartiner','petitdej'], ['pate a pizza','repas'], ['pate a tarte','repas'],
+    ['pate feuilletee','repas'], ['pate brisee','repas'], ['pates','repas'],
+    ['the glace','boisson'], ['chocolat chaud','petitdej'], ['chocolat en poudre','petitdej'],
+    ['biere sans alcool','boisson'], ['saucisse cocktail','apero'], ['jus','boisson'],
+    // petit déj
+    ['croissant','petitdej'], ['chocolatine','petitdej'], ['pain au chocolat','petitdej'],
+    ['brioche','petitdej'], ['viennoiserie','petitdej'], ['confiture','petitdej'],
+    ['miel','petitdej'], ['nutella','petitdej'], ['cereale','petitdej'], ['muesli','petitdej'],
+    ['granola','petitdej'], ['porridge','petitdej'], ['avoine','petitdej'], ['cafe','petitdej'],
+    ['the','petitdej'], ['tisane','petitdej'], ['lait','petitdej'], ['yaourt','petitdej'],
+    ['oeuf','petitdej'], ['beurre','petitdej'], ['tartine','petitdej'], ['pancake','petitdej'],
+    ['madeleine','petitdej'], ['compote','petitdej'],
+    // apéro
+    ['chips','apero'], ['tortilla','apero'], ['nachos','apero'], ['cacahuete','apero'],
+    ['pistache','apero'], ['noix de cajou','apero'], ['amande','apero'], ['olive','apero'],
+    ['saucisson','apero'], ['chorizo','apero'], ['tapenade','apero'], ['houmous','apero'],
+    ['guacamole','apero'], ['tzatziki','apero'], ['rillette','apero'], ['terrine','apero'],
+    ['pate','apero'], ['cracker','apero'], ['bretzel','apero'], ['tuc','apero'],
+    ['gressin','apero'], ['biere','apero'], ['pastis','apero'], ['ricard','apero'],
+    ['anis','apero'], ['aperol','apero'], ['spritz','apero'], ['gin','apero'],
+    ['vodka','apero'], ['whisky','apero'], ['rhum','apero'], ['tequila','apero'],
+    ['punch','apero'], ['sangria','apero'], ['kir','apero'], ['martini','apero'],
+    // boisson
+    ['vin','boisson'], ['champagne','boisson'], ['prosecco','boisson'], ['cidre','boisson'],
+    ['eau','boisson'], ['soda','boisson'], ['coca','boisson'], ['cola','boisson'],
+    ['limonade','boisson'], ['sirop','boisson'], ['ice tea','boisson'], ['perrier','boisson'],
+    ['badoit','boisson'], ['pellegrino','boisson'], ['orangina','boisson'],
+    ['schweppes','boisson'], ['tonic','boisson'], ['fanta','boisson'], ['sprite','boisson'],
+    ['red bull','boisson'], ['kombucha','boisson'], ['glacon','boisson'],
+    // repas
+    ['riz','repas'], ['pain','repas'], ['baguette','repas'], ['pomme de terre','repas'],
+    ['patate','repas'], ['puree','repas'], ['salade','repas'], ['tomate','repas'],
+    ['concombre','repas'], ['courgette','repas'], ['aubergine','repas'], ['poivron','repas'],
+    ['oignon','repas'], ['ail','repas'], ['carotte','repas'], ['champignon','repas'],
+    ['avocat','repas'], ['citron','repas'], ['legume','repas'], ['viande','repas'],
+    ['poulet','repas'], ['boeuf','repas'], ['porc','repas'], ['agneau','repas'],
+    ['canard','repas'], ['steak','repas'], ['hache','repas'], ['escalope','repas'],
+    ['cotelette','repas'], ['saucisse','repas'], ['merguez','repas'], ['chipolata','repas'],
+    ['brochette','repas'], ['poisson','repas'], ['saumon','repas'], ['thon','repas'],
+    ['cabillaud','repas'], ['crevette','repas'], ['moule','repas'], ['jambon','repas'],
+    ['lardon','repas'], ['fromage','repas'], ['rape','repas'], ['mozzarella','repas'],
+    ['emmental','repas'], ['comte','repas'], ['camembert','repas'], ['chevre','repas'],
+    ['creme','repas'], ['sauce','repas'], ['huile','repas'], ['vinaigre','repas'],
+    ['sel','repas'], ['poivre','repas'], ['epice','repas'], ['herbe','repas'],
+    ['moutarde','repas'], ['ketchup','repas'], ['mayo','repas'], ['pesto','repas'],
+    ['pizza','repas'], ['quiche','repas'], ['lasagne','repas'], ['semoule','repas'],
+    ['quinoa','repas'], ['lentille','repas'], ['haricot','repas'], ['pois chiche','repas'],
+    ['mais','repas'], ['soupe','repas'], ['farine','repas'], ['sucre','repas'],
+    ['gateau','repas'], ['tarte','repas'], ['glace','repas'], ['dessert','repas'],
+    ['chocolat','repas'], ['fruit','repas'], ['pomme','repas'], ['banane','repas'],
+    ['fraise','repas'], ['peche','repas'], ['melon','repas'], ['pasteque','repas'],
+    ['raisin','repas'], ['abricot','repas'], ['cerise','repas'],
+    // autre (non alimentaire)
+    ['papier','autre'], ['essuie','autre'], ['sopalin','autre'], ['poubelle','autre'],
+    ['aluminium','autre'], ['film','autre'], ['charbon','autre'], ['allume','autre'],
+    ['gel douche','autre'], ['savon','autre'], ['solaire','autre'], ['moustique','autre'],
+    ['eponge','autre'], ['vaisselle','autre'], ['pile','autre'], ['bougie','autre']
+  ].map(([kw, cat]) => [new RegExp('(^|[^a-z])' + kw + 's?($|[^a-z])'), cat]);
+
+  function norm(s) {
+    return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  }
+  function autoCat(name) {
+    const n = norm(name);
+    for (const [re, cat] of RULES) if (re.test(n)) return cat;
+    return 'autre';
+  }
+  function catOf(i) {
+    return CAT[i.cat] ? i.cat : autoCat(i.name);
+  }
+
+  /* ------------------- état ------------------- */
+  let items = {};
   let busy = false;
+  let openMenu = null; // id du produit dont le menu est ouvert
 
   $('date').textContent = new Date().toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' });
 
@@ -394,59 +536,90 @@
     const parts = [];
     if (i.by) parts.push('par ' + esc(i.by));
     parts.push(`<span class="vc ${isHot ? 'hot' : ''}">${n} vote${n > 1 ? 's' : ''}</span>`);
-    return parts.join(' &middot; ');
+    return parts.join(' &middot; ') + ' <span class="more">&hellip;</span>';
+  }
+
+  function menuRow(i) {
+    const current = catOf(i);
+    return `
+      <li class="catmenu" data-id="${i.id}">
+        <span class="cats">
+          ${CATS.map(c => `
+            <button data-act="setcat" data-cat="${c.id}"
+              class="${c.id === current ? 'current' : ''}"
+              title="${c.label}" aria-label="Classer dans ${c.label}"
+              aria-pressed="${c.id === current ? 'true' : 'false'}">${c.emoji}</button>`).join('')}
+        </span>
+        <button class="del" data-act="delnow" aria-label="Supprimer ${esc(i.name)}">✕ SUPPR</button>
+      </li>`;
   }
 
   function render() {
     if (!HOST) return;
     const all = Object.entries(items).map(([id, i]) => ({ id, ...i }));
-    const active = all.filter(i => !i.done)
-      .sort((a, b) => voteCount(b) - voteCount(a) || (a.created || 0) - (b.created || 0));
+    const actives = all.filter(i => !i.done);
     const done = all.filter(i => i.done)
       .sort((a, b) => (b.updated || 0) - (a.updated || 0));
-    const maxVotes = active.length ? Math.max(...active.map(voteCount)) : 0;
+    const maxVotes = actives.length ? Math.max(...actives.map(voteCount)) : 0;
 
-    $('activeList').innerHTML = active.map(i => {
-      const n = voteCount(i);
-      const voted = i.votes && i.votes[deviceId];
-      const voters = i.votes ? Object.values(i.votes).filter(Boolean).join(', ') : '';
-      const isHot = n >= 3 && n === maxVotes;
+    // rendu par catégorie, dans l'ordre fixe, catégories vides masquées
+    $('activeArea').innerHTML = CATS.map(c => {
+      const group = actives.filter(i => catOf(i) === c.id)
+        .sort((a, b) => voteCount(b) - voteCount(a) || (a.created || 0) - (b.created || 0));
+      if (!group.length) return '';
+      const sumQty = group.reduce((s, i) => s + qty(i), 0);
       return `
-      <li class="item" data-id="${i.id}">
-        <button class="vote ${voted ? 'voted' : ''}" data-act="vote"
-          aria-label="${voted ? 'Retirer mon vote pour' : 'Voter pour'} ${esc(i.name)}"
-          aria-pressed="${voted ? 'true' : 'false'}">${voted ? '✓' : '+1'}</button>
-        <span class="mid">
-          <span class="name">${esc(i.name)}</span><br>
-          <span class="by" title="${esc(voters)}">${byLine(i, n, isHot)}</span>
-        </span>
-        <span class="qty" aria-label="Quantité de ${esc(i.name)}">
-          <button data-act="minus" aria-label="Réduire la quantité">&minus;</button>
-          <span class="num">${qty(i)}</span>
-          <button data-act="plus" aria-label="Augmenter la quantité">+</button>
-        </span>
-        <button class="done" data-act="done" title="Marquer pris / retirer" aria-label="Retirer ${esc(i.name)}">✓</button>
-      </li>`;
+      <div class="cat-head">
+        <span>${c.emoji} ${c.label}</span>
+        <span class="fill"></span>
+        <span class="count">${sumQty}</span>
+      </div>
+      <ul aria-label="${c.label}">
+        ${group.map(i => {
+          const n = voteCount(i);
+          const voted = i.votes && i.votes[deviceId];
+          const voters = i.votes ? Object.values(i.votes).filter(Boolean).join(', ') : '';
+          const isHot = n >= 3 && n === maxVotes;
+          return `
+          <li class="item" data-id="${i.id}">
+            <button class="vote ${voted ? 'voted' : ''}" data-act="vote"
+              aria-label="${voted ? 'Retirer mon vote pour' : 'Voter pour'} ${esc(i.name)}"
+              aria-pressed="${voted ? 'true' : 'false'}">${voted ? '✓' : '+1'}</button>
+            <span class="mid" data-act="menu" role="button" tabindex="0"
+              aria-label="Options de ${esc(i.name)}" title="${esc(voters)}">
+              <span class="name">${esc(i.name)}</span><br>
+              <span class="by">${byLine(i, n, isHot)}</span>
+            </span>
+            <span class="qty" aria-label="Quantité de ${esc(i.name)}">
+              <button data-act="minus" aria-label="Réduire la quantité">&minus;</button>
+              <span class="num">${qty(i)}</span>
+              <button data-act="plus" aria-label="Augmenter la quantité">+</button>
+            </span>
+            <button class="done" data-act="done" title="Marquer pris / retirer" aria-label="Retirer ${esc(i.name)}">✓</button>
+          </li>
+          ${openMenu === i.id ? menuRow(i) : ''}`;
+        }).join('')}
+      </ul>`;
     }).join('');
 
     $('doneList').innerHTML = done.map(i => `
       <li class="item is-done" data-id="${i.id}">
         <span class="mid">
-          <span class="name">${esc(i.name)}</span><br>
-          <span class="by">${byLine(i, voteCount(i), false)}</span>
+          <span class="name">${CAT[catOf(i)].emoji} ${esc(i.name)}</span><br>
+          <span class="by">${i.by ? 'par ' + esc(i.by) : ''}</span>
         </span>
         <span class="qty-fixed">&times;${qty(i)}</span>
         <button class="done" data-act="undo" title="Remettre dans la liste" aria-label="Remettre ${esc(i.name)}">↩</button>
-        <button class="trash" data-act="del" title="Supprimer définitivement" aria-label="Supprimer ${esc(i.name)}">✕</button>
+        <button class="trash" data-act="delnow" title="Supprimer définitivement" aria-label="Supprimer ${esc(i.name)}">✕</button>
       </li>`).join('');
 
-    $('emptyMsg').hidden = active.length > 0;
+    $('emptyMsg').hidden = actives.length > 0;
     $('doneSection').hidden = done.length === 0;
-    $('total').textContent = active.reduce((s, i) => s + qty(i), 0);
+    $('total').textContent = actives.reduce((s, i) => s + qty(i), 0);
   }
 
   async function write(fn) {
-    render(); // affichage optimiste immédiat
+    render();
     try {
       await fn();
       setSync('sync ✓', 1500);
@@ -455,8 +628,7 @@
     }
   }
 
-  // Écriture de quantité différée : on regroupe les taps rapides (−−++)
-  // en une seule requête envoyée 500 ms après le dernier tap
+  // écritures de quantité regroupées (taps rapides = 1 requête)
   const qtyTimers = {};
   function pushQty(id) {
     clearTimeout(qtyTimers[id]);
@@ -474,12 +646,62 @@
     const id = uid();
     const now = Date.now();
     const item = {
-      name, by: myName(), qty: 1, done: false, created: now, updated: now,
+      name, by: myName(), qty: 1, cat: autoCat(name),
+      done: false, created: now, updated: now,
       votes: { [deviceId]: myName() }
     };
     items[id] = item;
     $('input').value = '';
     write(() => api('/' + id, 'PUT', item));
+  }
+
+  function handleAction(el) {
+    const li = el.closest('li[data-id]');
+    if (!li) return;
+    const id = li.dataset.id;
+    const item = items[id];
+    if (!item) return;
+    const act = el.dataset.act;
+    const now = Date.now();
+
+    if (act === 'menu') {
+      openMenu = (openMenu === id) ? null : id;
+      render();
+    }
+    if (act === 'setcat') {
+      item.cat = el.dataset.cat;
+      item.updated = now;
+      openMenu = null;
+      write(() => api('/' + id, 'PATCH', { cat: item.cat, updated: now }));
+    }
+    if (act === 'vote') {
+      const hasVoted = item.votes && item.votes[deviceId];
+      if (hasVoted) {
+        delete item.votes[deviceId];
+        write(() => api('/' + id + '/votes/' + deviceId, 'DELETE'));
+      } else {
+        item.votes = item.votes || {};
+        item.votes[deviceId] = myName() || '?';
+        write(() => api('/' + id + '/votes/' + deviceId, 'PUT', myName() || '?'));
+      }
+    }
+    if (act === 'plus' || act === 'minus') {
+      item.qty = Math.min(99, Math.max(1, qty(item) + (act === 'plus' ? 1 : -1)));
+      item.updated = now;
+      render();
+      pushQty(id);
+    }
+    if (act === 'done' || act === 'undo') {
+      item.done = (act === 'done');
+      item.updated = now;
+      if (openMenu === id) openMenu = null;
+      write(() => api('/' + id, 'PATCH', { done: item.done, updated: now }));
+    }
+    if (act === 'delnow') {
+      delete items[id];
+      if (openMenu === id) openMenu = null;
+      write(() => api('/' + id, 'DELETE'));
+    }
   }
 
   function boot() {
@@ -493,40 +715,13 @@
     $('input').addEventListener('keydown', e => { if (e.key === 'Enter') addItem(); });
 
     document.addEventListener('click', e => {
-      const btn = e.target.closest('button[data-act]');
-      if (!btn) return;
-      const li = btn.closest('li[data-id]');
-      const id = li.dataset.id;
-      const item = items[id];
-      if (!item) return;
-      const act = btn.dataset.act;
-      const now = Date.now();
-
-      if (act === 'vote') {
-        const hasVoted = item.votes && item.votes[deviceId];
-        if (hasVoted) {
-          delete item.votes[deviceId];
-          write(() => api('/' + id + '/votes/' + deviceId, 'DELETE'));
-        } else {
-          item.votes = item.votes || {};
-          item.votes[deviceId] = myName() || '?';
-          write(() => api('/' + id + '/votes/' + deviceId, 'PUT', myName() || '?'));
-        }
-      }
-      if (act === 'plus' || act === 'minus') {
-        item.qty = Math.min(99, Math.max(1, qty(item) + (act === 'plus' ? 1 : -1)));
-        item.updated = now;
-        render();
-        pushQty(id);
-      }
-      if (act === 'done' || act === 'undo') {
-        item.done = (act === 'done');
-        item.updated = now;
-        write(() => api('/' + id, 'PATCH', { done: item.done, updated: now }));
-      }
-      if (act === 'del') {
-        delete items[id];
-        write(() => api('/' + id, 'DELETE'));
+      const el = e.target.closest('[data-act]');
+      if (el) handleAction(el);
+    });
+    document.addEventListener('keydown', e => {
+      if ((e.key === 'Enter' || e.key === ' ') && e.target.dataset && e.target.dataset.act === 'menu') {
+        e.preventDefault();
+        handleAction(e.target);
       }
     });
 
