@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Liste de courses — Week-end ×7</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Archivo+Black&display=swap');
+
+  :root {
+    --bg: #2F5D3A;
+    --paper: #FDFBF4;
+    --ink: #1C1B18;
+    --faded: #A8A395;
+    --stamp: #D8442E;
+    --line: #D9D4C5;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    background-image: radial-gradient(rgba(255,255,255,.05) 1px, transparent 1px);
+    background-size: 22px 22px;
+    font-family: 'Space Mono', 'Courier New', monospace;
+    color: var(--ink);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 28px 12px 60px;
+  }
+
+  .receipt {
+    width: 100%;
+    max-width: 430px;
+    background: var(--paper);
+    box-shadow: 0 12px 40px rgba(0,0,0,.35);
+    padding: 28px 22px 34px;
+    position: relative;
+    height: fit-content;
+  }
+  .receipt::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: -12px; height: 12px;
+    background:
+      linear-gradient(-45deg, transparent 8px, var(--paper) 0) 0 0 / 16px 12px repeat-x,
+      linear-gradient(45deg, transparent 8px, var(--paper) 0) 8px 0 / 16px 12px repeat-x;
+  }
+
+  header { text-align: center; margin-bottom: 18px; }
+  header h1 {
+    font-family: 'Archivo Black', sans-serif;
+    font-size: 26px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  header .sub {
+    font-size: 12px;
+    letter-spacing: 3px;
+    margin-top: 6px;
+    text-transform: uppercase;
+  }
+  header .date { font-size: 11px; color: var(--faded); margin-top: 4px; }
+
+  .dashes { border: none; border-top: 2px dashed var(--ink); margin: 14px 0; }
+
+  .add-row { display: flex; gap: 8px; }
+  .add-row input {
+    flex: 1;
+    font-family: inherit;
+    font-size: 15px;
+    padding: 11px 12px;
+    border: 2px solid var(--ink);
+    border-radius: 0;
+    background: var(--paper);
+    outline: none;
+    min-width: 0;
+  }
+  .add-row input:focus-visible { box-shadow: 3px 3px 0 var(--ink); }
+  .add-row button {
+    font-family: 'Archivo Black', sans-serif;
+    font-size: 14px;
+    text-transform: uppercase;
+    padding: 0 18px;
+    border: 2px solid var(--ink);
+    background: var(--ink);
+    color: var(--paper);
+    cursor: pointer;
+  }
+  .add-row button:active { transform: translate(2px,2px); }
+  .add-row button:focus-visible { outline: 3px solid var(--stamp); outline-offset: 2px; }
+
+  ul { list-style: none; }
+  li.item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 0;
+    font-size: 15px;
+    border-bottom: 1px dashed var(--line);
+  }
+  li.item .name { flex: 1; overflow-wrap: anywhere; }
+  li.item .votes {
+    font-weight: 700;
+    min-width: 34px;
+    text-align: right;
+    white-space: nowrap;
+  }
+  li.item .votes.hot { color: var(--stamp); }
+
+  button.vote {
+    font-family: inherit;
+    font-weight: 700;
+    font-size: 13px;
+    border: 2px solid var(--stamp);
+    color: var(--stamp);
+    background: transparent;
+    border-radius: 999px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: transform .08s;
+  }
+  button.vote:active { transform: scale(1.15); }
+  button.vote:focus-visible, button.done:focus-visible, button.trash:focus-visible {
+    outline: 2px solid var(--ink); outline-offset: 2px;
+  }
+
+  button.done, button.trash {
+    font-family: inherit;
+    font-size: 15px;
+    border: none;
+    background: transparent;
+    color: var(--faded);
+    cursor: pointer;
+    padding: 4px 6px;
+  }
+  button.done:hover { color: var(--ink); }
+  button.trash:hover { color: var(--stamp); }
+
+  .done-title {
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--faded);
+    margin: 18px 0 4px;
+  }
+  li.item.is-done { color: var(--faded); }
+  li.item.is-done .name { text-decoration: line-through; }
+
+  .total {
+    display: flex;
+    justify-content: space-between;
+    font-weight: 700;
+    font-size: 14px;
+    margin-top: 16px;
+    text-transform: uppercase;
+  }
+  .barcode {
+    margin: 22px auto 0;
+    width: 180px; height: 34px;
+    background: repeating-linear-gradient(90deg,
+      var(--ink) 0 2px, transparent 2px 5px,
+      var(--ink) 5px 8px, transparent 8px 10px,
+      var(--ink) 10px 11px, transparent 11px 15px);
+  }
+  .footer-note {
+    text-align: center;
+    font-size: 10px;
+    color: var(--faded);
+    margin-top: 8px;
+    letter-spacing: 1px;
+  }
+
+  .empty { text-align: center; font-size: 13px; color: var(--faded); padding: 22px 0; }
+
+  .sync {
+    position: absolute;
+    top: 10px; right: 14px;
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--faded);
+    text-transform: uppercase;
+  }
+
+  .setup {
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  .setup ol { padding-left: 20px; margin-top: 10px; }
+  .setup li { margin-bottom: 8px; }
+  .setup code {
+    background: #EFEBDD;
+    padding: 1px 5px;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    button.vote:active, .add-row button:active { transform: none; }
+  }
+</style>
+</head>
+<body>
+  <main class="receipt">
+    <div class="sync" id="sync" aria-live="polite"></div>
+    <header>
+      <h1>Liste de courses</h1>
+      <div class="sub">Week-end &times; 7 pers.</div>
+      <div class="date" id="date"></div>
+    </header>
+
+    <hr class="dashes">
+
+    <!-- Écran de configuration si aucun ID de bin dans l'URL -->
+    <div class="setup" id="setup" hidden>
+      <strong>Configuration (une seule fois, par l'organisateur)&nbsp;:</strong>
+      <ol>
+        <li>Va sur <a href="https://www.npoint.io" target="_blank" rel="noopener">npoint.io</a>, remplace le contenu par <code>[]</code> et clique <strong>Save</strong>.</li>
+        <li>Copie l'identifiant du bin dans l'URL (la partie après <code>npoint.io/docs/</code>).</li>
+        <li>Ajoute-le à la fin du lien de cette page&nbsp;: <code>…/index.html#TON_ID</code></li>
+        <li>Partage ce lien complet aux copains. C'est tout.</li>
+      </ol>
+    </div>
+
+    <div id="app" hidden>
+      <div class="add-row">
+        <input id="input" type="text" maxlength="60" placeholder="Ajouter un produit…" aria-label="Nom du produit">
+        <button id="addBtn">+ OK</button>
+      </div>
+
+      <hr class="dashes">
+
+      <ul id="activeList" aria-label="Produits à acheter"></ul>
+      <div class="empty" id="emptyMsg" hidden>Ticket vide. Ajoutez le premier produit&nbsp;!</div>
+
+      <div id="doneSection" hidden>
+        <div class="done-title">— Pris / retirés —</div>
+        <ul id="doneList" aria-label="Produits retirés"></ul>
+      </div>
+
+      <hr class="dashes">
+      <div class="total"><span>Total articles</span><span id="total">0</span></div>
+    </div>
+
+    <div class="barcode" aria-hidden="true"></div>
+    <div class="footer-note">MERCI DE VOTRE VISITE &middot; +1 = VOTE</div>
+  </main>
+
+<script>
+  // L'identifiant du bin npoint est lu dans l'URL : monsite.com/index.html#abc123
+  const BIN_ID = location.hash.slice(1).trim();
+  const API = 'https://api.npoint.io/' + BIN_ID;
+  const $ = id => document.getElementById(id);
+  let items = [];
+  let saving = false;
+
+  $('date').textContent = new Date().toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' });
+
+  if (!BIN_ID) {
+    $('setup').hidden = false;
+  } else {
+    $('app').hidden = false;
+    boot();
+  }
+
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+
+  async function fetchRemote() {
+    const r = await fetch(API, { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    return Array.isArray(data) ? data : [];
+  }
+
+  // Fusion locale/distante pour limiter les écrasements quand deux
+  // personnes modifient en même temps (stratégie : union par id,
+  // votes = max, état le plus récent gagne, suppressions = tombstones)
+  function merge(local, remote) {
+    const map = new Map();
+    for (const it of remote) map.set(it.id, { ...it });
+    for (const it of local) {
+      const r = map.get(it.id);
+      if (!r) { map.set(it.id, { ...it }); continue; }
+      const newer = (it.updated || 0) >= (r.updated || 0) ? it : r;
+      map.set(it.id, {
+        ...newer,
+        votes: Math.max(it.votes || 0, r.votes || 0),
+        deleted: it.deleted || r.deleted || false
+      });
+    }
+    // purge des tombstones de plus de 24 h
+    const cutoff = Date.now() - 24 * 3600 * 1000;
+    return [...map.values()].filter(i => !(i.deleted && (i.updated || 0) < cutoff));
+  }
+
+  async function load() {
+    try {
+      const remote = await fetchRemote();
+      items = merge(items, remote);
+      setSync('');
+    } catch (e) {
+      setSync('hors ligne');
+    }
+    render();
+  }
+
+  async function save() {
+    if (saving) return;
+    saving = true;
+    try {
+      const remote = await fetchRemote();
+      items = merge(items, remote);
+      const r = await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(items)
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      setSync('sync ✓', 2000);
+    } catch (e) {
+      setSync('échec sync — réessaie');
+    } finally {
+      saving = false;
+    }
+    render();
+  }
+
+  let syncTimer;
+  function setSync(msg, clearAfter) {
+    $('sync').textContent = msg;
+    clearTimeout(syncTimer);
+    if (clearAfter) syncTimer = setTimeout(() => { $('sync').textContent = ''; }, clearAfter);
+  }
+
+  function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function render() {
+    if (!BIN_ID) return;
+    const visible = items.filter(i => !i.deleted);
+    const active = visible.filter(i => !i.done).sort((a,b) => b.votes - a.votes || a.created - b.created);
+    const done = visible.filter(i => i.done).sort((a,b) => (b.updated||0) - (a.updated||0));
+    const maxVotes = active.length ? Math.max(...active.map(i => i.votes)) : 0;
+
+    $('activeList').innerHTML = active.map(i => `
+      <li class="item" data-id="${i.id}">
+        <button class="vote" data-act="vote" aria-label="Voter pour ${esc(i.name)}">+1</button>
+        <span class="name">${esc(i.name)}</span>
+        <span class="votes ${i.votes >= 3 && i.votes === maxVotes ? 'hot' : ''}">&times;${i.votes}</span>
+        <button class="done" data-act="done" title="Marquer pris / retirer" aria-label="Retirer ${esc(i.name)}">✓</button>
+      </li>`).join('');
+
+    $('doneList').innerHTML = done.map(i => `
+      <li class="item is-done" data-id="${i.id}">
+        <span class="name">${esc(i.name)}</span>
+        <span class="votes">&times;${i.votes}</span>
+        <button class="done" data-act="undo" title="Remettre dans la liste" aria-label="Remettre ${esc(i.name)}">↩</button>
+        <button class="trash" data-act="del" title="Supprimer définitivement" aria-label="Supprimer ${esc(i.name)}">✕</button>
+      </li>`).join('');
+
+    $('emptyMsg').hidden = active.length > 0;
+    $('doneSection').hidden = done.length === 0;
+    $('total').textContent = active.length;
+  }
+
+  function addItem() {
+    const name = $('input').value.trim();
+    if (!name) return;
+    const now = Date.now();
+    items.push({ id: uid(), name, votes: 1, done: false, deleted: false, created: now, updated: now });
+    $('input').value = '';
+    render();
+    save();
+  }
+
+  function boot() {
+    $('addBtn').addEventListener('click', addItem);
+    $('input').addEventListener('keydown', e => { if (e.key === 'Enter') addItem(); });
+
+    document.addEventListener('click', e => {
+      const btn = e.target.closest('button[data-act]');
+      if (!btn) return;
+      const li = btn.closest('li[data-id]');
+      const item = items.find(i => i.id === li.dataset.id);
+      if (!item) return;
+      const act = btn.dataset.act;
+      item.updated = Date.now();
+      if (act === 'vote') item.votes++;
+      if (act === 'done') item.done = true;
+      if (act === 'undo') item.done = false;
+      if (act === 'del') item.deleted = true;
+      render();
+      save();
+    });
+
+    load();
+    setInterval(() => { if (!saving) load(); }, 8000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') load();
+    });
+  }
+</script>
+</body>
+</html>
