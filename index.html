@@ -122,7 +122,7 @@
   li.item {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     padding: 9px 0;
     font-size: 15px;
     border-bottom: 1px dashed var(--line);
@@ -134,13 +134,35 @@
     color: var(--faded);
     letter-spacing: .5px;
   }
-  li.item .votes {
-    font-weight: 700;
-    min-width: 34px;
-    text-align: right;
+  li.item .by .vc { font-weight: 700; }
+  li.item .by .vc.hot { color: var(--stamp); }
+
+  /* stepper de quantité */
+  .qty {
+    display: flex;
+    align-items: center;
+    gap: 2px;
     white-space: nowrap;
   }
-  li.item .votes.hot { color: var(--stamp); }
+  .qty button {
+    font-family: inherit;
+    font-weight: 700;
+    font-size: 15px;
+    width: 28px; height: 28px;
+    line-height: 1;
+    border: 1px solid var(--ink);
+    background: var(--paper);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .qty button:active { background: var(--ink); color: var(--paper); }
+  .qty button:focus-visible { outline: 2px solid var(--stamp); outline-offset: 1px; }
+  .qty .num {
+    font-weight: 700;
+    min-width: 26px;
+    text-align: center;
+    font-size: 15px;
+  }
 
   button.vote {
     font-family: inherit;
@@ -171,7 +193,7 @@
     background: transparent;
     color: var(--faded);
     cursor: pointer;
-    padding: 4px 6px;
+    padding: 4px 4px;
   }
   button.done:hover { color: var(--ink); }
   button.trash:hover { color: var(--stamp); }
@@ -185,6 +207,10 @@
   }
   li.item.is-done { color: var(--faded); }
   li.item.is-done .name { text-decoration: line-through; }
+  li.item.is-done .qty-fixed {
+    font-size: 13px;
+    white-space: nowrap;
+  }
 
   .total {
     display: flex;
@@ -248,7 +274,6 @@
 
     <hr class="dashes">
 
-    <!-- Écran de configuration si aucune base dans l'URL -->
     <div class="setup" id="setup" hidden>
       <strong>Configuration (une seule fois, par l'organisateur)&nbsp;:</strong>
       <ol>
@@ -297,14 +322,14 @@
   const BASE = 'https://' + HOST + '/liste';
   const $ = id => document.getElementById(id);
 
-  // Identifiant unique de cet appareil (1 vote par produit par appareil)
+  // Identifiant unique de cet appareil (1 vote par produit par personne)
   let deviceId = localStorage.getItem('courses_device');
   if (!deviceId) {
     deviceId = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     localStorage.setItem('courses_device', deviceId);
   }
 
-  let items = {};   // { id: { name, by, done, created, votes: { deviceId: prénom } } }
+  let items = {};   // { id: { name, by, qty, done, created, updated, votes: { deviceId: prénom } } }
   let busy = false;
 
   $('date').textContent = new Date().toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' });
@@ -321,7 +346,7 @@
   function needName() {
     const el = $('myName');
     el.classList.remove('attention');
-    void el.offsetWidth; // relance l'animation
+    void el.offsetWidth;
     el.classList.add('attention');
     el.focus();
   }
@@ -363,6 +388,14 @@
   }
 
   function voteCount(i) { return i.votes ? Object.keys(i.votes).length : 0; }
+  function qty(i) { return Math.max(1, i.qty || 1); }
+
+  function byLine(i, n, isHot) {
+    const parts = [];
+    if (i.by) parts.push('par ' + esc(i.by));
+    parts.push(`<span class="vc ${isHot ? 'hot' : ''}">${n} vote${n > 1 ? 's' : ''}</span>`);
+    return parts.join(' &middot; ');
+  }
 
   function render() {
     if (!HOST) return;
@@ -377,6 +410,7 @@
       const n = voteCount(i);
       const voted = i.votes && i.votes[deviceId];
       const voters = i.votes ? Object.values(i.votes).filter(Boolean).join(', ') : '';
+      const isHot = n >= 3 && n === maxVotes;
       return `
       <li class="item" data-id="${i.id}">
         <button class="vote ${voted ? 'voted' : ''}" data-act="vote"
@@ -384,9 +418,13 @@
           aria-pressed="${voted ? 'true' : 'false'}">${voted ? '✓' : '+1'}</button>
         <span class="mid">
           <span class="name">${esc(i.name)}</span><br>
-          <span class="by">${i.by ? 'par ' + esc(i.by) : ''}</span>
+          <span class="by" title="${esc(voters)}">${byLine(i, n, isHot)}</span>
         </span>
-        <span class="votes ${n >= 3 && n === maxVotes ? 'hot' : ''}" title="${esc(voters)}">&times;${n}</span>
+        <span class="qty" aria-label="Quantité de ${esc(i.name)}">
+          <button data-act="minus" aria-label="Réduire la quantité">&minus;</button>
+          <span class="num">${qty(i)}</span>
+          <button data-act="plus" aria-label="Augmenter la quantité">+</button>
+        </span>
         <button class="done" data-act="done" title="Marquer pris / retirer" aria-label="Retirer ${esc(i.name)}">✓</button>
       </li>`;
     }).join('');
@@ -395,31 +433,38 @@
       <li class="item is-done" data-id="${i.id}">
         <span class="mid">
           <span class="name">${esc(i.name)}</span><br>
-          <span class="by">${i.by ? 'par ' + esc(i.by) : ''}</span>
+          <span class="by">${byLine(i, voteCount(i), false)}</span>
         </span>
-        <span class="votes">&times;${voteCount(i)}</span>
+        <span class="qty-fixed">&times;${qty(i)}</span>
         <button class="done" data-act="undo" title="Remettre dans la liste" aria-label="Remettre ${esc(i.name)}">↩</button>
         <button class="trash" data-act="del" title="Supprimer définitivement" aria-label="Supprimer ${esc(i.name)}">✕</button>
       </li>`).join('');
 
     $('emptyMsg').hidden = active.length > 0;
     $('doneSection').hidden = done.length === 0;
-    $('total').textContent = active.length;
+    $('total').textContent = active.reduce((s, i) => s + qty(i), 0);
   }
 
   async function write(fn) {
-    if (busy) return;
-    busy = true;
     render(); // affichage optimiste immédiat
     try {
       await fn();
       setSync('sync ✓', 1500);
     } catch (e) {
       setSync('échec sync — réessaie');
-    } finally {
-      busy = false;
     }
-    load();
+  }
+
+  // Écriture de quantité différée : on regroupe les taps rapides (−−++)
+  // en une seule requête envoyée 500 ms après le dernier tap
+  const qtyTimers = {};
+  function pushQty(id) {
+    clearTimeout(qtyTimers[id]);
+    qtyTimers[id] = setTimeout(() => {
+      const it = items[id];
+      if (!it) return;
+      write(() => api('/' + id, 'PATCH', { qty: qty(it), updated: Date.now() }));
+    }, 500);
   }
 
   function addItem() {
@@ -429,7 +474,7 @@
     const id = uid();
     const now = Date.now();
     const item = {
-      name, by: myName(), done: false, created: now, updated: now,
+      name, by: myName(), qty: 1, done: false, created: now, updated: now,
       votes: { [deviceId]: myName() }
     };
     items[id] = item;
@@ -467,6 +512,12 @@
           item.votes[deviceId] = myName() || '?';
           write(() => api('/' + id + '/votes/' + deviceId, 'PUT', myName() || '?'));
         }
+      }
+      if (act === 'plus' || act === 'minus') {
+        item.qty = Math.min(99, Math.max(1, qty(item) + (act === 'plus' ? 1 : -1)));
+        item.updated = now;
+        render();
+        pushQty(id);
       }
       if (act === 'done' || act === 'undo') {
         item.done = (act === 'done');
